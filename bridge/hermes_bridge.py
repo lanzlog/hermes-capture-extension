@@ -212,19 +212,50 @@ class HermesBridge:
 def entry_to_captured(entry: dict):
     """Convert an extension network entry into the app's CapturedRequest.
 
-    Import lazily so this file also works standalone (e.g. for tests). Adjust
-    field names to match your CapturedRequest dataclass.
+    Import lazily so this file also works standalone (e.g. for tests).
     """
-    from utils import CapturedRequest  # type: ignore
+    import base64
+    import uuid
+    from urllib.parse import urlsplit
+    from proxy_engine import CapturedRequest  # type: ignore
+
+    url = entry.get("url", "")
+    parts = urlsplit(url)
+    scheme = parts.scheme or ""
+    host = parts.hostname or ""
+    port = parts.port or (443 if scheme == "https" else 80)
+    path = parts.path + (("?" + parts.query) if parts.query else "")
+
+    resp_body_text = entry.get("responseBody", "") or ""
+    resp_body = b""
+    if resp_body_text:
+        if entry.get("responseBase64"):
+            try:
+                resp_body = base64.b64decode(resp_body_text)
+                resp_body_text = ""  # binary; keep bytes only
+            except Exception:
+                resp_body = resp_body_text.encode("utf-8", "replace")
+        else:
+            resp_body = resp_body_text.encode("utf-8", "replace")
+
+    req_body_text = entry.get("requestBody", "") or ""
+    req_body = req_body_text.encode("utf-8", "replace") if req_body_text else b""
 
     return CapturedRequest(
+        id=str(entry.get("requestId") or uuid.uuid4().hex),
         method=entry.get("method", ""),
-        url=entry.get("url", ""),
-        status=entry.get("status", 0),
-        request_headers=entry.get("requestHeaders", {}),
-        response_headers=entry.get("responseHeaders", {}),
-        request_body=entry.get("requestBody", ""),
-        response_body=entry.get("responseBody", ""),
-        content_type=entry.get("mimeType", ""),
-        started=entry.get("startedDateTime", ""),
+        url=url,
+        scheme=scheme,
+        host=host,
+        port=port,
+        path=path,
+        request_headers=entry.get("requestHeaders", {}) or {},
+        request_body=req_body,
+        request_body_text=req_body_text,
+        status_code=int(entry.get("status", 0) or 0),
+        reason=entry.get("statusText", "") or "",
+        response_headers=entry.get("responseHeaders", {}) or {},
+        response_body=resp_body,
+        response_body_text=resp_body_text,
+        content_type=entry.get("mimeType", "") or "",
     )
