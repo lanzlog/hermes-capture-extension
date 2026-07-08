@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Hermes Capture",
+  "version": "0.1.0",
+  "description": "Attach the Hermes HAR Recorder to an already-open browser window/tab and capture its traffic (including popups, redirects and new tabs) without restarting the browser.",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "webNavigation",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Hermes Capture",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
