@@ -34,9 +34,11 @@ windows that are already open.
   captured tab (e.g. login popup → OTP tab → dashboard).
 - Pause / Continue capture from the Hermes app.
 - Works in Chrome, Brave, Edge and other Chromium browsers.
-  *(A Firefox build is planned — see `docs/firefox.md`.)*
+- **Firefox is also supported** via a separate build in [`firefox/`](firefox/)
+  (uses `webRequest` + `filterResponseData` instead of CDP). See
+  [`docs/firefox.md`](docs/firefox.md).
 
-## Install (unpacked, for development)
+## Install — Chrome / Brave / Edge (unpacked, for development)
 
 1. Open `chrome://extensions` (or `brave://extensions`, `edge://extensions`).
 2. Enable **Developer mode** (top-right).
@@ -60,6 +62,17 @@ The extension icon shows a green badge (`on`) when it's connected to the app.
 > this browser"* bar on captured tabs. That's expected — it's how the extension
 > reads the traffic. It disappears when you Stop.
 
+## Install — Firefox (temporary, for development)
+
+1. Go to `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…** and select `firefox/manifest.json`.
+3. Click the toolbar icon → confirm the **App port** matches Hermes (`8898`).
+
+Firefox only keeps *signed* add-ons across restarts; a temporary load is
+cleared when you close Firefox. For a permanent install, sign the add-on via
+AMO / `web-ext sign`. Full details in [`docs/firefox.md`](docs/firefox.md).
+Firefox needs **no debugger banner** and **no mitmproxy CA** for this route.
+
 ## Integrating with the Hermes app
 
 See [`bridge/hermes_bridge.py`](bridge/hermes_bridge.py) (the WebSocket server
@@ -69,14 +82,18 @@ into `gui_main.py`.
 ## Repo layout
 
 ```
-manifest.json          MV3 manifest
-src/background.js       service worker: WS + CDP capture + follow-new-tabs
-src/protocol.js        shared protocol constants
-src/popup.html/.js     small connection/status popup
+manifest.json            MV3 manifest (Chromium)
+src/background.js         service worker: WS + CDP capture + follow-new-tabs
+src/protocol.js          shared protocol constants
+src/popup.html/.js       small connection/status popup
+firefox/manifest.json    MV2 manifest (Firefox)
+firefox/background.js    Firefox capture: webRequest + filterResponseData
+firefox/popup.html/.js   Firefox connection/status popup
+firefox/icons/           Firefox extension icons
 bridge/hermes_bridge.py  reference WebSocket server for the Hermes app
-docs/integration.md    how to wire the bridge into the desktop app
-docs/firefox.md        notes for a future Firefox build
-icons/                 extension icons
+docs/integration.md      how to wire the bridge into the desktop app
+docs/firefox.md          Firefox build details
+icons/                   extension icons (Chromium)
 ```
 
 ## License
