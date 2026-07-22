@@ -22,6 +22,8 @@ let reconnectTimer = null;
 let reconnectDelay = RECONNECT_MS;
 /** True while a connect() call is in flight (avoids stacked sockets). */
 let connecting = false;
+/** Master switch — when false, no WS, no reconnect, no capture. Default ON. */
+let enabled = true;
 
 // Set of tabIds we're currently capturing (a captured "window" = its tabs).
 const capturedTabs = new Set();
@@ -46,6 +48,13 @@ async function getPort() {
   return hermesPort || DEFAULT_PORT;
 }
 
+async function loadEnabled() {
+  const { hermesEnabled } = await chrome.storage.local.get("hermesEnabled");
+  // Default ON when unset.
+  enabled = hermesEnabled !== false;
+  return enabled;
+}
+
 function isSocketLive() {
   return (
     ws &&
@@ -55,6 +64,10 @@ function isSocketLive() {
 
 async function connect() {
   clearTimeout(reconnectTimer);
+  if (!enabled) {
+    setBadge("off", "#5C6370");
+    return;
+  }
   // Don't open a second socket while one is already open/connecting.
   if (connecting || isSocketLive()) return;
   connecting = true;
@@ -65,10 +78,15 @@ async function connect() {
     // Chrome always logs net::ERR_CONNECTION_REFUSED for failed localhost WS
     // opens — that is browser-level and cannot be silenced from extension code.
     // We cut the spam by exponential backoff (2s → 60s) instead of retrying
-    // every 2s forever while Hermes is closed.
+    // every 2s forever while Hermes is closed. Flip the popup OFF to stop
+    // attempts entirely.
     socket = new WebSocket(wsUrl(port));
   } catch (e) {
     connecting = false;
+    if (!enabled) {
+      setBadge("off", "#5C6370");
+      return;
+    }
     setBadge("…", "#E5C07B");
     scheduleReconnect();
     return;
@@ -80,13 +98,17 @@ async function connect() {
     // Ignore stale sockets if a newer connect won the race.
     if (ws !== socket) return;
     connecting = false;
+    if (!enabled) {
+      try { socket.close(); } catch {}
+      return;
+    }
     reconnectDelay = RECONNECT_MS;
     send({ type: "hello", browser: detectBrowser(), version: PROTOCOL_VERSION });
     reportWindows();
     setBadge("on", "#98C379");
   };
   socket.onmessage = (ev) => {
-    if (ws !== socket) return;
+    if (ws !== socket || !enabled) return;
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     handleCommand(msg).catch((e) => send({ type: "error", message: String(e) }));
@@ -95,6 +117,10 @@ async function connect() {
     if (ws !== socket) return;
     connecting = false;
     ws = null;
+    if (!enabled) {
+      setBadge("off", "#5C6370");
+      return;
+    }
     setBadge("…", "#E5C07B");
     scheduleReconnect();
   };
@@ -106,6 +132,7 @@ async function connect() {
 }
 
 function scheduleReconnect() {
+  if (!enabled) return;
   clearTimeout(reconnectTimer);
   const delay = reconnectDelay;
   // Back off: 2s → 4s → 8s → … → 60s. Resets on successful onopen.
@@ -122,6 +149,29 @@ function reconnectNow() {
     try { ws.close(); } catch {}
     ws = null;
   }
+  if (enabled) connect();
+  else setBadge("off", "#5C6370");
+}
+
+/** Hard stop: close socket, cancel timers, detach captures, badge "off". */
+async function disableExtension() {
+  enabled = false;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  connecting = false;
+  reconnectDelay = RECONNECT_MS;
+  if (ws) {
+    try { ws.close(); } catch {}
+    ws = null;
+  }
+  try { await stopAll("disabled"); } catch {}
+  setBadge("off", "#5C6370");
+}
+
+async function enableExtension() {
+  enabled = true;
+  reconnectDelay = RECONNECT_MS;
+  setBadge("…", "#E5C07B");
   connect();
 }
 
@@ -157,6 +207,7 @@ async function reportWindows() {
 
 // ─── Command handling ───────────────────────────────────────────────────────
 async function handleCommand(msg) {
+  if (!enabled) return;
   switch (msg.type) {
     case "list_windows":
       await reportWindows();
@@ -348,10 +399,20 @@ async function safeTab(tabId) {
 }
 
 // ─── Boot ───────────────────────────────────────────────────────────────────
-// Wake immediately when the user changes the port (popup Save still reloads,
-// but this also covers external storage writes without a full SW restart).
+// Wake immediately when the user changes port / enable switch (popup Save
+// still reloads, but this also covers live toggle without a full SW restart).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.hermesPort) reconnectNow();
+  if (area !== "local") return;
+  if (Object.prototype.hasOwnProperty.call(changes, "hermesEnabled")) {
+    const next = changes.hermesEnabled.newValue !== false;
+    if (next) enableExtension();
+    else disableExtension();
+    return;
+  }
+  if (changes.hermesPort && enabled) reconnectNow();
 });
 
-connect();
+loadEnabled().then((on) => {
+  if (on) connect();
+  else setBadge("off", "#5C6370");
+});

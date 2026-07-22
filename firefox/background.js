@@ -20,6 +20,8 @@ let ws = null;
 let reconnectTimer = null;
 let reconnectDelay = RECONNECT_MS;
 let connecting = false;
+/** Master switch — when false, no WS, no reconnect, no capture. Default ON. */
+let enabled = true;
 
 // tabIds we're actively capturing.
 const capturedTabs = new Set();
@@ -35,6 +37,12 @@ async function getPort() {
   return hermesPort || DEFAULT_PORT;
 }
 
+async function loadEnabled() {
+  const { hermesEnabled } = await browser.storage.local.get("hermesEnabled");
+  enabled = hermesEnabled !== false;
+  return enabled;
+}
+
 function isSocketLive() {
   return (
     ws &&
@@ -44,6 +52,10 @@ function isSocketLive() {
 
 async function connect() {
   clearTimeout(reconnectTimer);
+  if (!enabled) {
+    setBadge("off", "#5C6370");
+    return;
+  }
   if (connecting || isSocketLive()) return;
   connecting = true;
 
@@ -52,9 +64,14 @@ async function connect() {
   try {
     // Browser logs ERR_CONNECTION_REFUSED for failed localhost WS — cannot
     // silence. Exponential backoff (2s → 60s) cuts the spam while Hermes is down.
+    // Flip the popup OFF to stop attempts entirely.
     socket = new WebSocket(wsUrl(port));
   } catch (e) {
     connecting = false;
+    if (!enabled) {
+      setBadge("off", "#5C6370");
+      return;
+    }
     setBadge("…", "#E5C07B");
     scheduleReconnect();
     return;
@@ -65,13 +82,17 @@ async function connect() {
   socket.onopen = () => {
     if (ws !== socket) return;
     connecting = false;
+    if (!enabled) {
+      try { socket.close(); } catch {}
+      return;
+    }
     reconnectDelay = RECONNECT_MS;
     send({ type: "hello", browser: "firefox", version: PROTOCOL_VERSION });
     reportWindows();
     setBadge("on", "#98C379");
   };
   socket.onmessage = (ev) => {
-    if (ws !== socket) return;
+    if (ws !== socket || !enabled) return;
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     handleCommand(msg).catch((e) => send({ type: "error", message: String(e) }));
@@ -80,6 +101,10 @@ async function connect() {
     if (ws !== socket) return;
     connecting = false;
     ws = null;
+    if (!enabled) {
+      setBadge("off", "#5C6370");
+      return;
+    }
     setBadge("…", "#E5C07B");
     scheduleReconnect();
   };
@@ -89,6 +114,7 @@ async function connect() {
 }
 
 function scheduleReconnect() {
+  if (!enabled) return;
   clearTimeout(reconnectTimer);
   const delay = reconnectDelay;
   reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
@@ -103,6 +129,28 @@ function reconnectNow() {
     try { ws.close(); } catch {}
     ws = null;
   }
+  if (enabled) connect();
+  else setBadge("off", "#5C6370");
+}
+
+async function disableExtension() {
+  enabled = false;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  connecting = false;
+  reconnectDelay = RECONNECT_MS;
+  if (ws) {
+    try { ws.close(); } catch {}
+    ws = null;
+  }
+  try { await stopAll("disabled"); } catch {}
+  setBadge("off", "#5C6370");
+}
+
+async function enableExtension() {
+  enabled = true;
+  reconnectDelay = RECONNECT_MS;
+  setBadge("…", "#E5C07B");
   connect();
 }
 
@@ -136,6 +184,7 @@ async function reportWindows() {
 
 // ─── Command handling ───────────────────────────────────────────────────────
 async function handleCommand(msg) {
+  if (!enabled) return;
   switch (msg.type) {
     case "list_windows":
       await reportWindows();
@@ -403,7 +452,17 @@ function bytesToBase64(bytes) {
 
 // ─── Boot ───────────────────────────────────────────────────────────────────
 browser.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.hermesPort) reconnectNow();
+  if (area !== "local") return;
+  if (Object.prototype.hasOwnProperty.call(changes, "hermesEnabled")) {
+    const next = changes.hermesEnabled.newValue !== false;
+    if (next) enableExtension();
+    else disableExtension();
+    return;
+  }
+  if (changes.hermesPort && enabled) reconnectNow();
 });
 
-connect();
+loadEnabled().then((on) => {
+  if (on) connect();
+  else setBadge("off", "#5C6370");
+});

@@ -49,10 +49,11 @@ windows that are already open.
    in the Hermes app (default `8898`).
 
 The extension icon shows a green badge (`on`) when connected to the app,
-or a yellow `…` while waiting / reconnecting with exponential backoff
-(2s → 60s). Chrome still logs a single `ERR_CONNECTION_REFUSED` each
-attempt when the desktop app is closed — that is browser-level and
-cannot be fully silenced; backoff keeps it rare instead of every 2s.
+a yellow `…` while waiting / reconnecting with exponential backoff
+(2s → 60s), or gray `off` when the popup master switch is disabled.
+Chrome still logs a single `ERR_CONNECTION_REFUSED` each attempt when the
+desktop app is closed — that is browser-level and cannot be fully
+silenced; backoff keeps it rare, and the **ON/OFF switch** stops it cold.
 
 ## Use
 
