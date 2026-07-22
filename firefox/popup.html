@@ -9,6 +9,7 @@
     .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #E06C75; }
     .dot.on { background: #98C379; }
+    .dot.wait { background: #E5C07B; }
     label { font-size: 12px; }
     input { width: 70px; background: #2C313A; color: #ABB2BF;
             border: 1px solid #3A3F4B; border-radius: 4px; padding: 4px; }
@@ -26,9 +27,9 @@
     <button id="save">Save</button>
   </div>
   <div class="hint">
-    Open the Hermes desktop app, pick this browser's window in its window
-    list, and press Record. Capturing works on windows that are already
-    open — no restart needed.
+    Open the Hermes desktop app (it listens on this port), pick this
+    browser's window in its list, and press Record. While the app is
+    closed the extension backs off reconnects so the console stays quiet.
   </div>
   <script src="popup.js"></script>
 </body>

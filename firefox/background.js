@@ -12,11 +12,14 @@
 
 const DEFAULT_PORT = 8898;
 const RECONNECT_MS = 2000;
+const RECONNECT_MAX_MS = 60000;
 const PROTOCOL_VERSION = "fx-1.0";
 const wsUrl = (port) => `ws://127.0.0.1:${port}/hermes`;
 
 let ws = null;
 let reconnectTimer = null;
+let reconnectDelay = RECONNECT_MS;
+let connecting = false;
 
 // tabIds we're actively capturing.
 const capturedTabs = new Set();
@@ -32,32 +35,75 @@ async function getPort() {
   return hermesPort || DEFAULT_PORT;
 }
 
+function isSocketLive() {
+  return (
+    ws &&
+    (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
+  );
+}
+
 async function connect() {
   clearTimeout(reconnectTimer);
+  if (connecting || isSocketLive()) return;
+  connecting = true;
+
   const port = await getPort();
+  let socket;
   try {
-    ws = new WebSocket(wsUrl(port));
+    // Browser logs ERR_CONNECTION_REFUSED for failed localhost WS — cannot
+    // silence. Exponential backoff (2s → 60s) cuts the spam while Hermes is down.
+    socket = new WebSocket(wsUrl(port));
   } catch (e) {
+    connecting = false;
+    setBadge("…", "#E5C07B");
     scheduleReconnect();
     return;
   }
-  ws.onopen = () => {
+
+  ws = socket;
+
+  socket.onopen = () => {
+    if (ws !== socket) return;
+    connecting = false;
+    reconnectDelay = RECONNECT_MS;
     send({ type: "hello", browser: "firefox", version: PROTOCOL_VERSION });
     reportWindows();
     setBadge("on", "#98C379");
   };
-  ws.onmessage = (ev) => {
+  socket.onmessage = (ev) => {
+    if (ws !== socket) return;
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     handleCommand(msg).catch((e) => send({ type: "error", message: String(e) }));
   };
-  ws.onclose = () => { setBadge("", "#666"); scheduleReconnect(); };
-  ws.onerror = () => { try { ws.close(); } catch {} };
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    connecting = false;
+    ws = null;
+    setBadge("…", "#E5C07B");
+    scheduleReconnect();
+  };
+  socket.onerror = () => {
+    try { socket.close(); } catch {}
+  };
 }
 
 function scheduleReconnect() {
   clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connect, RECONNECT_MS);
+  const delay = reconnectDelay;
+  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+  reconnectTimer = setTimeout(connect, delay);
+}
+
+function reconnectNow() {
+  clearTimeout(reconnectTimer);
+  reconnectDelay = RECONNECT_MS;
+  connecting = false;
+  if (ws) {
+    try { ws.close(); } catch {}
+    ws = null;
+  }
+  connect();
 }
 
 function send(obj) {
@@ -356,4 +402,8 @@ function bytesToBase64(bytes) {
 }
 
 // ─── Boot ───────────────────────────────────────────────────────────────────
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.hermesPort) reconnectNow();
+});
+
 connect();

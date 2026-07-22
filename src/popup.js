@@ -8,12 +8,17 @@ async function init() {
 }
 
 async function refreshStatus() {
-  // The badge text set by the service worker reflects the connection.
+  // Badge text set by the service worker: "on" | "…" | "".
   const text = await chrome.action.getBadgeText({});
   const connected = text === "on";
-  document.getElementById("dot").className = "dot" + (connected ? " on" : "");
-  document.getElementById("status").textContent =
-    connected ? "Connected to Hermes" : "Disconnected";
+  const waiting = text === "…";
+  const dot = document.getElementById("dot");
+  dot.className = "dot" + (connected ? " on" : waiting ? " wait" : "");
+  document.getElementById("status").textContent = connected
+    ? "Connected to Hermes"
+    : waiting
+      ? "Waiting for app…"
+      : "Disconnected";
 }
 
 document.getElementById("save").addEventListener("click", async () => {

@@ -20,7 +20,10 @@
 //
 // Default port must match extension_bridge.py in the Hermes app.
 export const DEFAULT_PORT = 8898;
+/** Initial reconnect delay after a dropped / refused connection. */
 export const RECONNECT_MS = 2000;
+/** Cap for exponential backoff so we don't wait forever when the app starts. */
+export const RECONNECT_MAX_MS = 60000;
 
 export function wsUrl(port) {
   return `ws://127.0.0.1:${port}/hermes`;
